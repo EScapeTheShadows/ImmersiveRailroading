@@ -11,6 +11,8 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 
+import cam72cam.immersiverailroading.model.TrackModel;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -24,7 +26,8 @@ import net.minecraftforge.fml.common.ProgressManager.ProgressBar;
 public class DefinitionManager {
 
 	private static Map<String, EntityRollingStockDefinition> definitions;
-	
+	private static Map<String, TrackDefinition> tracks;
+
 	@FunctionalInterface
 	private static interface JsonLoader {
 		EntityRollingStockDefinition apply(String defID, JsonObject data) throws Exception;
@@ -83,12 +86,10 @@ public class DefinitionManager {
 	}
 
 	public static void initDefinitions() throws IOException {
-		System.gc();
-		long mem = Runtime.getRuntime().freeMemory();
-
 		initGauges();
 		
-		definitions = new LinkedHashMap<String, EntityRollingStockDefinition>();
+		definitions = new LinkedHashMap<>();
+		tracks = new LinkedHashMap<>();
 		
 		Set<String> defTypes = jsonLoaders.keySet();
 		
@@ -128,7 +129,7 @@ public class DefinitionManager {
 				}
 			}
 			
-	        ProgressBar bar = ProgressManager.push("Generating Heightmaps", steps);
+	        ProgressBar bar = ProgressManager.push("Loading Models", steps);
 	        
 	        
 	        for (String defType : defTypes) {
@@ -153,9 +154,43 @@ public class DefinitionManager {
 			
 			ProgressManager.pop(bar);
 		}
+		ProgressBar bar = ProgressManager.push("Generating Heightmap", definitions.size());
+		
+		for (EntityRollingStockDefinition def : definitions.values()) {
+			bar.step(def.name());
+			def.initHeightMap();
+		}
+		
+		ProgressManager.pop(bar);
 
-		System.gc();
-		ImmersiveRailroading.warn("%s %s", Runtime.getRuntime().freeMemory() - mem, Runtime.getRuntime().freeMemory());
+		//ProgressBar bar = ProgressManager.push("Loading tracks", )
+		ResourceLocation track_json = new ResourceLocation(ImmersiveRailroading.MODID, "track/track.json");
+
+		inputs = ImmersiveRailroading.proxy.getResourceStreamAll(track_json);
+		for (InputStream input : inputs) {
+
+			JsonParser parser = new JsonParser();
+			JsonObject track = parser.parse(new InputStreamReader(input)).getAsJsonObject();
+			input.close();
+
+			JsonArray types = track.getAsJsonArray("types");
+			bar = ProgressManager.push("Loading Tracks", types.size());
+
+			for (JsonElement def : types) {
+				bar.step(def.getAsString());
+				String trackID = String.format("immersiverailroading:track/%s.json", def.getAsString());
+				ImmersiveRailroading.info("Loading Track %s", trackID);
+				JsonParser trackParser = new JsonParser();
+				JsonObject trackData = trackParser.parse(new InputStreamReader(ImmersiveRailroading.proxy.getResourceStream(new ResourceLocation(trackID)))).getAsJsonObject();
+				try {
+					tracks.put(trackID, new TrackDefinition(trackID, trackData));
+				} catch (Exception e) {
+					ImmersiveRailroading.catching(e);
+				}
+			}
+
+			ProgressManager.pop(bar);
+		}
 	}
 
 	private static JsonObject getJsonData(String defID) throws IOException {
@@ -183,4 +218,28 @@ public class DefinitionManager {
 	public static Set<String> getDefinitionNames() {
 		return definitions.keySet();
 	}
+
+	public static Collection<TrackDefinition> getTracks() {
+		return tracks.values();
+	}
+
+	public static List<String> getTrackIDs() {
+		ArrayList<String> res = new ArrayList<>();
+		res.addAll(tracks.keySet());
+		return res;
+	}
+
+
+	public static TrackModel getTrack(String track, double value) {
+		return getTrack(track).getTrackForGauge(value);
+	}
+
+	public static TrackDefinition getTrack(String track) {
+        TrackDefinition def = tracks.get(track);
+		if (def == null) {
+			def = tracks.values().stream().findFirst().get();
+		}
+		return def;
+	}
+
 }

@@ -16,11 +16,13 @@ public class IGWMod {
 				skipLine();
 				addSectionHeader("Guides");
 				pageEntries.add("getting-started");
+				pageEntries.add("custom-curves");
 				pageEntries.add("open-computers");
 				skipLine();
-				addSectionHeader("Tools");
+				addSectionHeader("Crafting");
 				pageEntries.add("blueprint-book");
 				pageEntries.add("track-blueprint");
+				pageEntries.add("golden-spike");
 				pageEntries.add("large-wrench");
 				pageEntries.add("coupling-hook");
 				pageEntries.add("conductor-whistle");
@@ -38,6 +40,11 @@ public class IGWMod {
 				pageEntries.add("augment-item");
 				pageEntries.add("augment-fluid");
 				pageEntries.add("augment-speed-retarder");
+				skipLine();
+				addSectionHeader("Info");
+				pageEntries.add("rolling-stock-performance");
+				pageEntries.add("resource-packs-outside-sources");
+				pageEntries.add("customizing-ir");
 
 			}
 

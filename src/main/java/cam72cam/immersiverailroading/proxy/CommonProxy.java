@@ -1,11 +1,19 @@
 package cam72cam.immersiverailroading.proxy;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
+import java.io.FilenameFilter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 
+import cam72cam.immersiverailroading.net.*;
+import org.apache.commons.io.IOUtils;
+
+import cam72cam.immersiverailroading.Config;
 import cam72cam.immersiverailroading.Config.ConfigDebug;
 import cam72cam.immersiverailroading.IRBlocks;
 import cam72cam.immersiverailroading.IRItems;
@@ -39,14 +47,6 @@ import cam72cam.immersiverailroading.multiblock.MultiblockRegistry;
 import cam72cam.immersiverailroading.multiblock.PlateRollerMultiblock;
 import cam72cam.immersiverailroading.multiblock.RailRollerMultiblock;
 import cam72cam.immersiverailroading.multiblock.SteamHammerMultiblock;
-import cam72cam.immersiverailroading.net.BuildableStockSyncPacket;
-import cam72cam.immersiverailroading.net.ItemRailUpdatePacket;
-import cam72cam.immersiverailroading.net.KeyPressPacket;
-import cam72cam.immersiverailroading.net.MRSSyncPacket;
-import cam72cam.immersiverailroading.net.MousePressPacket;
-import cam72cam.immersiverailroading.net.PassengerPositionsPacket;
-import cam72cam.immersiverailroading.net.SoundPacket;
-import cam72cam.immersiverailroading.net.MultiblockSelectCraftPacket;
 import cam72cam.immersiverailroading.registry.DefinitionManager;
 import cam72cam.immersiverailroading.sound.ISound;
 import cam72cam.immersiverailroading.thirdparty.CompatLoader;
@@ -60,6 +60,7 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.init.Blocks;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
+import net.minecraft.item.crafting.IRecipe;
 import net.minecraft.util.EntitySelectors;
 import net.minecraft.util.ResourceLocation;
 import net.minecraft.util.math.BlockPos;
@@ -81,6 +82,7 @@ import net.minecraftforge.fml.common.registry.EntityRegistry;
 import net.minecraftforge.fml.common.registry.GameRegistry;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.oredict.OreDictionary;
+import net.minecraftforge.registries.IForgeRegistryModifiable;
 
 @EventBusSubscriber(modid = ImmersiveRailroading.MODID)
 public abstract class CommonProxy implements IGuiHandler {
@@ -109,7 +111,7 @@ public abstract class CommonProxy implements IGuiHandler {
     	new File(cacheDir).mkdirs();
     	
     	DefinitionManager.initDefinitions();
-    	;
+    	Config.init();
     	OreHelper.IR_RAIL_BED.add(Blocks.BRICK_BLOCK);
     	OreHelper.IR_RAIL_BED.add(Blocks.COBBLESTONE);
     	OreHelper.IR_RAIL_BED.add(new ItemStack(Blocks.CONCRETE, 1, OreDictionary.WILDCARD_VALUE));
@@ -131,6 +133,8 @@ public abstract class CommonProxy implements IGuiHandler {
     	ImmersiveRailroading.net.registerMessage(BuildableStockSyncPacket.Handler.class, BuildableStockSyncPacket.class, 8, Side.CLIENT);
     	ImmersiveRailroading.net.registerMessage(MultiblockSelectCraftPacket.Handler.class, MultiblockSelectCraftPacket.class, 9, Side.SERVER);
     	ImmersiveRailroading.net.registerMessage(SoundPacket.Handler.class, SoundPacket.class, 10, Side.CLIENT);
+    	ImmersiveRailroading.net.registerMessage(PaintSyncPacket.Handler.class, PaintSyncPacket.class, 11, Side.CLIENT);
+	ImmersiveRailroading.net.registerMessage(PreviewRenderPacket.Handler.class, PreviewRenderPacket.class, 12, Side.CLIENT);
 
     	NetworkRegistry.INSTANCE.registerGuiHandler(ImmersiveRailroading.instance, this);
     	
@@ -151,6 +155,25 @@ public abstract class CommonProxy implements IGuiHandler {
     public abstract World getWorld(int dimension);
     
     @SubscribeEvent
+    public static void registerRecipes(RegistryEvent.Register<IRecipe> event) {
+    	IForgeRegistryModifiable<IRecipe> modRegistry = (IForgeRegistryModifiable<IRecipe>) event.getRegistry();
+    	if (!OreDictionary.doesOreNameExist("ingotSteel")) {
+    		modRegistry.remove(new ResourceLocation("immersiverailroading:wrench"));
+    		modRegistry.remove(new ResourceLocation("immersiverailroading:hook"));
+    		modRegistry.remove(new ResourceLocation("immersiverailroading:manual"));
+    		modRegistry.remove(new ResourceLocation("immersiverailroading:track blueprint"));
+    		modRegistry.remove(new ResourceLocation("immersiverailroading:switch key"));
+    	} else {
+    		modRegistry.remove(new ResourceLocation("immersiverailroading:wrench_iron"));
+    		modRegistry.remove(new ResourceLocation("immersiverailroading:hook_iron"));
+    		modRegistry.remove(new ResourceLocation("immersiverailroading:manual_iron"));
+    		modRegistry.remove(new ResourceLocation("immersiverailroading:track blueprint_iron"));
+    		modRegistry.remove(new ResourceLocation("immersiverailroading:switch key_iron"));
+    	}
+    }
+    
+    @SuppressWarnings("deprecation")
+	@SubscribeEvent
     public static void registerBlocks(RegistryEvent.Register<Block> event)
     {
 		event.getRegistry().register(IRBlocks.BLOCK_RAIL_GAG);
@@ -177,6 +200,10 @@ public abstract class CommonProxy implements IGuiHandler {
     	event.getRegistry().register(IRItems.ITEM_PLATE);
     	event.getRegistry().register(IRItems.ITEM_CAST_RAIL);
     	event.getRegistry().register(IRItems.ITEM_CONDUCTOR_WHISTLE);
+    	event.getRegistry().register(IRItems.ITEM_PAINT_BRUSH);
+    	event.getRegistry().register(IRItems.ITEM_GOLDEN_SPIKE);
+      event.getRegistry().register(IRItems.ITEM_RADIO_CONTROL_CARD);
+    	event.getRegistry().register(IRItems.ITEM_SWITCH_KEY);
     }
     
     @SubscribeEvent
@@ -235,8 +262,58 @@ public abstract class CommonProxy implements IGuiHandler {
 	
 	public abstract int getTicks();
 
-	public abstract InputStream getResourceStream(ResourceLocation modelLoc) throws IOException;
+
 	public abstract List<InputStream> getResourceStreamAll(ResourceLocation modelLoc) throws IOException;
+
+	public InputStream getResourceStream(ResourceLocation location) throws IOException {
+		InputStream chosen = null;
+		for (InputStream strm : getResourceStreamAll(location)) {
+			if (chosen == null) {
+				chosen = strm;
+			} else {
+				strm.close();
+			}
+		}
+		if (chosen == null) {
+			throw new java.io.FileNotFoundException(location.toString());
+		}
+		return chosen;
+	}
+
+    
+    protected String pathString(ResourceLocation location, boolean startingSlash) {
+    	return (startingSlash ? "/" : "") + "assets/" + location.getResourceDomain() + "/" + location.getResourcePath();
+    }
+    
+    protected List<InputStream> getFileResourceStreams(ResourceLocation location) throws IOException {
+    	List<InputStream> streams = new ArrayList<InputStream>();
+    	File folder = new File(this.configDir);
+    	if (folder.exists()) {
+    		if (folder.isDirectory()) {
+	    		File[] files = folder.listFiles(new FilenameFilter() {
+				    @Override
+				    public boolean accept(File dir, String name) {
+				        return name.endsWith(".zip");
+				    }
+				});
+	    		for (File file : files) {
+	    			ZipFile resourcePack = new ZipFile(file);
+	    			ZipEntry entry = resourcePack.getEntry(pathString(location, false));
+	    			if (entry != null) {
+	    				// Copy the input stream so we can close the resource pack
+	    				InputStream stream = resourcePack.getInputStream(entry);
+	    				streams.add(new ByteArrayInputStream(IOUtils.toByteArray(stream)));
+	    			}
+	    			resourcePack.close();
+	    		}
+    		} else {
+    			ImmersiveRailroading.error("Expecting " + this.configDir + " to be a directory");
+    		}
+    	} else {
+			folder.mkdirs();
+    	}
+		return streams;
+    }
 	
 	public ISound newSound(ResourceLocation oggLocation, boolean repeats, float attenuationDistance, Gauge gauge) {
 		return null;
@@ -285,4 +362,6 @@ public abstract class CommonProxy implements IGuiHandler {
 		double ttms = ttus * 1.0E-6D;
 		return Math.min(1000.0 / ttms, 20);
 	}
+
+    public abstract void addPreview(int dimension, TileRailPreview preview);
 }

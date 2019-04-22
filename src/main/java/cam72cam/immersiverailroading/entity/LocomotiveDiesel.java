@@ -31,6 +31,8 @@ public class LocomotiveDiesel extends Locomotive {
 	private float soundThrottle;
 	private float internalBurn = 0;
 	private int turnOnOffDelay = 0;
+	private float hornVolume = 0;
+	private static float hornStep = 0.25f;
 	
 	private static DataParameter<Float> ENGINE_TEMPERATURE = EntityDataManager.createKey(LocomotiveDiesel.class, DataSerializers.FLOAT);
 	private static DataParameter<Boolean> TURNED_ON = EntityDataManager.createKey(LocomotiveDiesel.class, DataSerializers.BOOLEAN);
@@ -108,7 +110,7 @@ public class LocomotiveDiesel extends Locomotive {
 	 * Sets the throttle or brake on all connected diesel locomotives if the throttle or brake has been changed
 	 */
 	@Override
-	public void handleKeyPress(Entity source, KeyTypes key) {
+	public void handleKeyPress(Entity source, KeyTypes key, boolean sprinting) {
 		switch(key) {
 			case START_STOP_ENGINE:
 				if (turnOnOffDelay == 0) {
@@ -117,12 +119,12 @@ public class LocomotiveDiesel extends Locomotive {
 				}
 				break;
 			default:
-				super.handleKeyPress(source, key);
+				super.handleKeyPress(source, key, sprinting);
 		}
 	}
 	
 	private void setThrottleMap(EntityRollingStock stock, boolean direction) {
-		if (stock instanceof LocomotiveDiesel) {
+		if (stock instanceof LocomotiveDiesel && ((LocomotiveDiesel)stock).getDefinition().muliUnitCapable) {
 			((LocomotiveDiesel) stock).realSetThrottle(this.getThrottle() * (direction ? 1 : -1));
 			((LocomotiveDiesel) stock).realAirBrake(this.getAirBrake());
 		}
@@ -141,7 +143,9 @@ public class LocomotiveDiesel extends Locomotive {
 	@Override
 	public void setThrottle(float newThrottle) {
 		realSetThrottle(newThrottle);
-		this.mapTrain(this, true, false, this::setThrottleMap);
+		if (this.getDefinition().muliUnitCapable) {
+			this.mapTrain(this, true, false, this::setThrottleMap);
+		}
 	}
 	
 	@Override
@@ -158,6 +162,8 @@ public class LocomotiveDiesel extends Locomotive {
 		return 0;
 	}
 
+
+
 	@Override
 	public void onUpdate() {
 		super.onUpdate();
@@ -165,10 +171,12 @@ public class LocomotiveDiesel extends Locomotive {
 		if (world.isRemote) {
 			if (ConfigSound.soundEnabled) {
 				if (this.horn == null) {
-					this.horn = ImmersiveRailroading.proxy.newSound(this.getDefinition().horn, false, 100, gauge);
-					this.idle = ImmersiveRailroading.proxy.newSound(this.getDefinition().idle, true, 80, gauge);
+                    bell = ImmersiveRailroading.proxy.newSound(this.getDefinition().bell, true, 150, this.soundGauge());
+					this.horn = ImmersiveRailroading.proxy.newSound(this.getDefinition().horn, this.getDefinition().getHornSus(), 100, this.soundGauge());
+					this.idle = ImmersiveRailroading.proxy.newSound(this.getDefinition().idle, true, 80, this.soundGauge());
+
+
 				}
-				
 				if (isRunning()) {
 					if (!idle.isPlaying()) {
 						this.idle.play(getPositionVector());
@@ -178,9 +186,26 @@ public class LocomotiveDiesel extends Locomotive {
 						idle.stop();
 					}
 				}
-				
+
 				if (this.getDataManager().get(HORN) != 0 && !horn.isPlaying() && isRunning()) {
+					if (this.getDefinition().getHornSus()) {
+						hornVolume = 0.25f;
+						horn.setVolume(hornVolume);
+					}
 					horn.play(getPositionVector());
+				}
+				else if(this.getDataManager().get(HORN) == 0 && horn.isPlaying() && this.getDefinition().getHornSus()){
+					if (hornVolume > 0) {
+						hornVolume -= 0.25;
+						horn.setVolume(hornVolume);
+					} else {
+						horn.stop();
+					}
+				}
+
+				if (this.getDefinition().getHornSus() && this.getDataManager().get(HORN) != 0 && hornVolume < 1) {
+					hornVolume += 0.25;
+					horn.setVolume(hornVolume);
 				}
 				
 				float absThrottle = Math.abs(this.getThrottle());
@@ -195,6 +220,7 @@ public class LocomotiveDiesel extends Locomotive {
 					horn.setVelocity(getVelocity());
 					horn.update();
 				}
+
 				
 				if (idle.isPlaying()) {
 					idle.setPitch(0.7f+this.soundThrottle/4);
@@ -210,13 +236,13 @@ public class LocomotiveDiesel extends Locomotive {
 				return;
 			}
 			
-			Vec3d fakeMotion = new Vec3d(this.motionX, this.motionY, this.motionZ);//VecUtil.fromYaw(this.getCurrentSpeed().minecraft(), this.rotationYaw);
+			Vec3d fakeMotion = new Vec3d(this.motionX, this.motionY, this.motionZ);//VecUtil.fromWrongYaw(this.getCurrentSpeed().minecraft(), this.rotationYaw);
 			
 			List<RenderComponent> exhausts = this.getDefinition().getComponents(RenderComponentType.DIESEL_EXHAUST_X, gauge);
 			float throttle = Math.abs(this.getThrottle()) + 0.05f;
 			if (exhausts != null && isRunning()) {
 				for (RenderComponent exhaust : exhausts) {
-					Vec3d particlePos = this.getPositionVector().add(VecUtil.rotateYaw(exhaust.center(), this.rotationYaw + 180)).addVector(0, 0.35 * gauge.scale(), 0);
+					Vec3d particlePos = this.getPositionVector().add(VecUtil.rotateWrongYaw(exhaust.center(), this.rotationYaw + 180));
 					
 					double smokeMod = (1 + Math.min(1, Math.max(0.2, Math.abs(this.getCurrentSpeed().minecraft())*2)))/2;
 					
