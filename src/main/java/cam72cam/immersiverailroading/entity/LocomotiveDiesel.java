@@ -331,5 +331,6 @@ public class LocomotiveDiesel extends Locomotive {
 		setEngineTemperature(ambientTemperature());
 		setEngineOverheated(false);
 		setTurnedOn(false);
+		setBell(0);
 	}
 }
